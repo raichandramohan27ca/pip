@@ -1,8 +1,8 @@
-name: pip
-description: "A plugin for Picture in Picture."
-version: 0.0.3
-homepage: https://github.com/opentraa/pip
-repository: https://github.com/opentraa/pip
+name: pip_webrtc
+description: "A fork of pip plugin for Picture in Picture, tuned for WebRTC iOS video calls. Uses the video call PiP approach (initWithActiveVideoCallSourceView) compatible with .playAndRecord audio session."
+version: 0.0.1
+homepage: https://github.com/raichandramohan27ca/pip
+repository: https://github.com/raichandramohan27ca/pip
 
 environment:
   sdk: ^3.5.4

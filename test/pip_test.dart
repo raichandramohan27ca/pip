@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pip/pip.dart';
-import 'package:pip/pip_platform_interface.dart';
-import 'package:pip/pip_method_channel.dart';
+import 'package:pip_webrtc/pip.dart';
+import 'package:pip_webrtc/pip_platform_interface.dart';
+import 'package:pip_webrtc/pip_method_channel.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 class MockPipPlatform

@@ -18,7 +18,7 @@
 #define PIP_LOG(fmt, ...)
 #endif
 
-#define USE_PIP_VIEW_CONTROLLER 0
+#define USE_PIP_VIEW_CONTROLLER 1
 
 @implementation PipOptions {
 }
@@ -65,11 +65,8 @@
 @property(nonatomic, strong) AVPictureInPictureController *pipController;
 
 #if USE_PIP_VIEW_CONTROLLER
-// Do not use this anymore, it is dangerous to use it and do not have the best
-// user experience(we have to call bringToFront in didStart which make the
-// truely pip view not visible for a while ).
-// pip view controller, weak reference
-@property(nonatomic) UIViewController *pipViewController;
+// pip view controller for video call PiP approach (works with .playAndRecord audio session)
+@property(nonatomic, strong) AVPictureInPictureVideoCallViewController *pipViewController;
 #endif
 
 @end
@@ -146,7 +143,23 @@
     // video source with a good user experience.
     if (_pipController == nil || _pipController.contentSource == nil) {
 
-      // create pip view
+#if USE_PIP_VIEW_CONTROLLER
+      // Video call PiP approach — compatible with .playAndRecord audio session (WebRTC)
+      _pipViewController = [[AVPictureInPictureVideoCallViewController alloc] init];
+      _pipViewController.preferredContentSize = CGSizeMake(
+          options.preferredContentSize.width <= 0
+              ? 100
+              : options.preferredContentSize.width,
+          options.preferredContentSize.height <= 0
+              ? 100
+              : options.preferredContentSize.height);
+
+      AVPictureInPictureControllerContentSource *contentSource =
+          [[AVPictureInPictureControllerContentSource alloc]
+              initWithActiveVideoCallSourceView:currentVideoSourceView
+                          contentViewController:_pipViewController];
+#else
+      // Playback PiP approach — requires .playback audio session
       _pipView = [[PipView alloc] init];
 
       [currentVideoSourceView insertSubview:_pipView atIndex:0];
@@ -175,6 +188,7 @@
           [[AVPictureInPictureControllerContentSource alloc]
               initWithSampleBufferDisplayLayer:_pipView.sampleBufferDisplayLayer
                               playbackDelegate:self];
+#endif
 
       _pipController = [[AVPictureInPictureController alloc]
           initWithContentSource:contentSource];
@@ -198,11 +212,6 @@
                           forKey:@"controlsStyle"];
       }
 
-#if USE_PIP_VIEW_CONTROLLER
-      NSString *pipVCName =
-          [NSString stringWithFormat:@"pictureInPictureViewController"];
-      _pipViewController = [_pipController valueForKey:pipVCName];
-#endif
     } else {
       // pip controller is already initialized, so we need to update the options
 
@@ -222,9 +231,13 @@
 
       if (options.preferredContentSize.width > 0 &&
           options.preferredContentSize.height > 0) {
+#if USE_PIP_VIEW_CONTROLLER
+        _pipViewController.preferredContentSize = options.preferredContentSize;
+#else
         [_pipView
             updateFrameSize:CGSizeMake(options.preferredContentSize.width,
                                        options.preferredContentSize.height)];
+#endif
       }
 
       if (options.autoEnterEnabled !=

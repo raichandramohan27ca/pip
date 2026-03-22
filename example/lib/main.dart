@@ -5,7 +5,7 @@ import 'dart:io';
 import 'native_view.dart';
 
 import 'package:flutter/services.dart';
-import 'package:pip/pip.dart';
+import 'package:pip_webrtc/pip.dart';
 import 'package:native_plugin/native_plugin.dart';
 
 void main() {
