@@ -1,8 +1,14 @@
 #import "PipPlugin.h"
 
+@interface NSObject (FlutterWebRTCBridge)
++ (id)sharedSingleton;
+- (id)streamForId:(NSString *)streamId peerConnectionId:(NSString *)peerConnectionId;
+@end
+
 @interface PipPlugin ()
 
 @property(nonatomic) FlutterMethodChannel *channel;
+@property(nonatomic) FlutterMethodChannel *bridgeChannel;
 
 @property(nonatomic, strong) PipController *pipController;
 
@@ -20,6 +26,12 @@
       [[PipController alloc] initWith:(id<PipStateChangedDelegate>)instance];
 
   [registrar addMethodCallDelegate:instance channel:channel];
+
+  FlutterMethodChannel *bridgeChannel =
+      [FlutterMethodChannel methodChannelWithName:@"pip_webrtc_bridge"
+                                  binaryMessenger:[registrar messenger]];
+  instance.bridgeChannel = bridgeChannel;
+  [registrar addMethodCallDelegate:instance channel:bridgeChannel];
 }
 
 - (void)handleMethodCall:(FlutterMethodCall *)call
@@ -88,6 +100,77 @@
   } else if ([@"dispose" isEqualToString:call.method]) {
     [self.pipController dispose];
     result(nil);
+  } else if ([@"createPipVideoView" isEqualToString:call.method]) {
+    NSString *remoteStreamId = [call.arguments objectForKey:@"remoteStreamId"];
+    if (remoteStreamId == nil) {
+      result(@(0));
+      return;
+    }
+
+    if (self.attachedVideoTrack && self.nativePipVideoView) {
+      [self.attachedVideoTrack removeRenderer:self.nativePipVideoView];
+    }
+    self.nativePipVideoView = nil;
+    self.attachedVideoTrack = nil;
+
+    Class webrtcClass = NSClassFromString(@"FlutterWebRTCPlugin");
+    if (!webrtcClass || ![webrtcClass respondsToSelector:@selector(sharedSingleton)]) {
+      NSLog(@"[PipBridge] FlutterWebRTCPlugin not available");
+      result(@(0));
+      return;
+    }
+
+    id webrtcPlugin = [webrtcClass performSelector:@selector(sharedSingleton)];
+    RTCVideoTrack *videoTrack = nil;
+
+    NSDictionary *peerConnections = [webrtcPlugin valueForKey:@"peerConnections"];
+    if (peerConnections) {
+      for (NSString *pcId in peerConnections) {
+        RTCMediaStream *stream = [webrtcPlugin streamForId:remoteStreamId
+                                          peerConnectionId:pcId];
+        if (stream && stream.videoTracks.count > 0) {
+          videoTrack = stream.videoTracks.firstObject;
+          break;
+        }
+      }
+    }
+
+    if (!videoTrack) {
+      RTCMediaStream *stream = [webrtcPlugin streamForId:remoteStreamId
+                                        peerConnectionId:nil];
+      if (stream) {
+        videoTrack = stream.videoTracks.firstObject;
+      }
+    }
+
+    if (!videoTrack) {
+      NSLog(@"[PipBridge] No video track found for stream: %@", remoteStreamId);
+      result(@(0));
+      return;
+    }
+
+    RTCMTLVideoView *videoView = [[RTCMTLVideoView alloc] init];
+    videoView.frame = CGRectMake(0, 0, 270, 480);
+    [videoView setVideoContentMode:UIViewContentModeScaleAspectFill];
+    [videoTrack addRenderer:videoView];
+
+    self.nativePipVideoView = videoView;
+    self.attachedVideoTrack = videoTrack;
+
+    uint64_t pointer = (uint64_t)videoView;
+    NSLog(@"[PipBridge] Created native video view: %llu", pointer);
+    result(@(pointer));
+
+  } else if ([@"disposePipVideoView" isEqualToString:call.method]) {
+    if (self.attachedVideoTrack && self.nativePipVideoView) {
+      [self.attachedVideoTrack removeRenderer:self.nativePipVideoView];
+    }
+    [self.nativePipVideoView removeFromSuperview];
+    self.nativePipVideoView = nil;
+    self.attachedVideoTrack = nil;
+    NSLog(@"[PipBridge] Disposed native video view");
+    result(nil);
+
   } else {
     result(FlutterMethodNotImplemented);
   }

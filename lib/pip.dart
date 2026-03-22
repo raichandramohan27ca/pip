@@ -2,6 +2,7 @@ import 'pip_platform_interface.dart';
 
 export 'pip_platform_interface.dart'
     show PipOptions, PipStateChangedObserver, PipState;
+export 'pip_webrtc_bridge.dart' show PipWebRTCBridge;
 
 class Pip {
   Future<void> registerStateChangedObserver(
