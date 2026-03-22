@@ -3,13 +3,13 @@
 # Run `pod lib lint pip.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
-  s.name             = 'pip'
+  s.name             = 'pip_webrtc'
   s.version          = '0.0.1'
-  s.summary          = 'A plugin for Picture in Picture.'
+  s.summary          = 'A PiP plugin tuned for WebRTC iOS video calls.'
   s.description      = <<-DESC
-A plugin for Picture in Picture.
+A fork of pip plugin for Picture in Picture, using the video call PiP approach compatible with .playAndRecord audio session.
                        DESC
-  s.homepage         = 'https://github.com/opentraa/pip'
+  s.homepage         = 'https://github.com/raichandramohan27ca/pip'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Sylar' => 'peilinok@gmail.com' }
   s.source           = { :path => '.' }
