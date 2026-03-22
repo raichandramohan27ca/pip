@@ -154,6 +154,16 @@
     [videoView setVideoContentMode:UIViewContentModeScaleAspectFill];
     [videoTrack addRenderer:videoView];
 
+    // Add to root view hierarchy so Metal rendering is active immediately.
+    // Without this, the view never renders live frames (only a frozen buffer).
+    // PipController's insertContentViewIfNeeded will move it to the PiP window
+    // when PiP starts, and restoreContentViewIfNeeded will return it here after.
+    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    if (window && window.rootViewController) {
+      videoView.alpha = 0.01;
+      [window.rootViewController.view insertSubview:videoView atIndex:0];
+    }
+
     self.nativePipVideoView = videoView;
     self.attachedVideoTrack = videoTrack;
 
