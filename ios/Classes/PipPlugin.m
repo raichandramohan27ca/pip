@@ -160,7 +160,6 @@
     // when PiP starts, and restoreContentViewIfNeeded will return it here after.
     UIWindow *window = [UIApplication sharedApplication].keyWindow;
     if (window && window.rootViewController) {
-      videoView.alpha = 0.01;
       [window.rootViewController.view insertSubview:videoView atIndex:0];
     }
 
