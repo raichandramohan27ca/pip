@@ -1,8 +1,80 @@
 #import "PipPlugin.h"
+#import <AVFoundation/AVFoundation.h>
+#import <CoreMedia/CoreMedia.h>
 
 @interface NSObject (FlutterWebRTCBridge)
 + (id)sharedSingleton;
 - (id)streamForId:(NSString *)streamId peerConnectionId:(NSString *)peerConnectionId;
+@end
+
+@interface PipSampleBufferView : UIView
+@property(nonatomic, readonly) AVSampleBufferDisplayLayer *sampleBufferLayer;
+@end
+
+@implementation PipSampleBufferView
++ (Class)layerClass {
+  return [AVSampleBufferDisplayLayer class];
+}
+- (AVSampleBufferDisplayLayer *)sampleBufferLayer {
+  return (AVSampleBufferDisplayLayer *)self.layer;
+}
+@end
+
+@interface PipSampleBufferRenderer : NSObject <RTCVideoRenderer>
+@property(nonatomic, weak) AVSampleBufferDisplayLayer *displayLayer;
+@end
+
+@implementation PipSampleBufferRenderer
+- (instancetype)initWithDisplayLayer:(AVSampleBufferDisplayLayer *)layer {
+  self = [super init];
+  if (self) {
+    _displayLayer = layer;
+  }
+  return self;
+}
+- (void)setSize:(CGSize)size {}
+- (void)renderFrame:(nullable RTCVideoFrame *)frame {
+  if (!frame) return;
+
+  CVPixelBufferRef pixelBuffer = NULL;
+  if ([frame.buffer isKindOfClass:NSClassFromString(@"RTCCVPixelBuffer")]) {
+    pixelBuffer = ((RTCCVPixelBuffer *)frame.buffer).pixelBuffer;
+  }
+  if (!pixelBuffer) return;
+
+  CMVideoFormatDescriptionRef formatDesc = NULL;
+  OSStatus status = CMVideoFormatDescriptionCreateForImageBuffer(
+      kCFAllocatorDefault, pixelBuffer, &formatDesc);
+  if (status != noErr || !formatDesc) return;
+
+  CMSampleTimingInfo timing;
+  timing.duration = kCMTimeInvalid;
+  timing.presentationTimeStamp =
+      CMTimeMakeWithSeconds(CACurrentMediaTime(), 1000000);
+  timing.decodeTimeStamp = kCMTimeInvalid;
+
+  CMSampleBufferRef sampleBuffer = NULL;
+  status = CMSampleBufferCreateForImageBuffer(
+      kCFAllocatorDefault, pixelBuffer, true, NULL, NULL,
+      formatDesc, &timing, &sampleBuffer);
+  CFRelease(formatDesc);
+  if (status != noErr || !sampleBuffer) return;
+
+  AVSampleBufferDisplayLayer *layer = self.displayLayer;
+  if (!layer) {
+    CFRelease(sampleBuffer);
+    return;
+  }
+
+  CFRetain(sampleBuffer);
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (layer.status == AVQueuedSampleBufferRenderingStatusFailed) {
+      [layer flush];
+    }
+    [layer enqueueSampleBuffer:sampleBuffer];
+    CFRelease(sampleBuffer);
+  });
+}
 @end
 
 @interface PipPlugin ()
@@ -107,11 +179,12 @@
       return;
     }
 
-    if (self.attachedVideoTrack && self.nativePipVideoView) {
-      [self.attachedVideoTrack removeRenderer:self.nativePipVideoView];
+    if (self.attachedVideoTrack && self.pipVideoRenderer) {
+      [self.attachedVideoTrack removeRenderer:self.pipVideoRenderer];
     }
     self.nativePipVideoView = nil;
     self.attachedVideoTrack = nil;
+    self.pipVideoRenderer = nil;
 
     Class webrtcClass = NSClassFromString(@"FlutterWebRTCPlugin");
     if (!webrtcClass || ![webrtcClass respondsToSelector:@selector(sharedSingleton)]) {
@@ -149,32 +222,31 @@
       return;
     }
 
-    RTCMTLVideoView *videoView = [[RTCMTLVideoView alloc] init];
-    videoView.frame = CGRectMake(0, 0, 270, 480);
-    [videoView setVideoContentMode:UIViewContentModeScaleAspectFill];
-    [videoTrack addRenderer:videoView];
+    PipSampleBufferView *videoView =
+        [[PipSampleBufferView alloc] initWithFrame:CGRectMake(0, 0, 270, 480)];
+    videoView.backgroundColor = [UIColor blackColor];
+    videoView.sampleBufferLayer.videoGravity =
+        AVLayerVideoGravityResizeAspectFill;
 
-    // Add to root view hierarchy so Metal rendering is active immediately.
-    // Without this, the view never renders live frames (only a frozen buffer).
-    // PipController's insertContentViewIfNeeded will move it to the PiP window
-    // when PiP starts, and restoreContentViewIfNeeded will return it here after.
-    UIWindow *window = [UIApplication sharedApplication].keyWindow;
-    if (window && window.rootViewController) {
-      [window.rootViewController.view insertSubview:videoView atIndex:0];
-    }
+    PipSampleBufferRenderer *renderer =
+        [[PipSampleBufferRenderer alloc]
+            initWithDisplayLayer:videoView.sampleBufferLayer];
+    [videoTrack addRenderer:renderer];
 
     self.nativePipVideoView = videoView;
     self.attachedVideoTrack = videoTrack;
+    self.pipVideoRenderer = renderer;
 
     uint64_t pointer = (uint64_t)videoView;
     NSLog(@"[PipBridge] Created native video view: %llu", pointer);
     result(@(pointer));
 
   } else if ([@"disposePipVideoView" isEqualToString:call.method]) {
-    if (self.attachedVideoTrack && self.nativePipVideoView) {
-      [self.attachedVideoTrack removeRenderer:self.nativePipVideoView];
+    if (self.attachedVideoTrack && self.pipVideoRenderer) {
+      [self.attachedVideoTrack removeRenderer:self.pipVideoRenderer];
     }
     [self.nativePipVideoView removeFromSuperview];
+    self.pipVideoRenderer = nil;
     self.nativePipVideoView = nil;
     self.attachedVideoTrack = nil;
     NSLog(@"[PipBridge] Disposed native video view");

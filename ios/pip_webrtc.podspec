@@ -17,6 +17,7 @@ A fork of pip plugin for Picture in Picture, using the video call PiP approach c
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
   s.dependency 'WebRTC-SDK'
+  s.frameworks = 'AVKit', 'AVFoundation', 'CoreMedia'
   s.platform = :ios, '13.0'
 
   # Flutter.framework does not contain a i386 slice.
