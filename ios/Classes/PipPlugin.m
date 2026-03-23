@@ -226,7 +226,7 @@
         [[PipSampleBufferView alloc] initWithFrame:CGRectMake(0, 0, 270, 480)];
     videoView.backgroundColor = [UIColor blackColor];
     videoView.sampleBufferLayer.videoGravity =
-        AVLayerVideoGravityResizeAspectFill;
+        AVLayerVideoGravityResizeAspect;
 
     PipSampleBufferRenderer *renderer =
         [[PipSampleBufferRenderer alloc]
