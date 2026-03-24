@@ -233,6 +233,15 @@
             initWithDisplayLayer:videoView.sampleBufferLayer];
     [videoTrack addRenderer:renderer];
 
+    RTCCameraVideoCapturer *capturer = [webrtcPlugin valueForKey:@"videoCapturer"];
+    if (capturer && capturer.captureSession) {
+      if (@available(iOS 18.0, *)) {
+        if (capturer.captureSession.isMultitaskingCameraAccessSupported) {
+          capturer.captureSession.multitaskingCameraAccessEnabled = YES;
+        }
+      }
+    }
+
     self.nativePipVideoView = videoView;
     self.attachedVideoTrack = videoTrack;
     self.pipVideoRenderer = renderer;
