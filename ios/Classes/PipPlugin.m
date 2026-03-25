@@ -20,7 +20,12 @@
 }
 @end
 
-@class PipCompositeView;
+@interface PipCompositeView : UIView
+@property(nonatomic, strong) PipSampleBufferView *remoteView;
+@property(nonatomic, strong) UIView *localContainer;
+@property(nonatomic, assign) RTCVideoRotation currentRotation;
+- (void)updateRotation:(RTCVideoRotation)rotation;
+@end
 
 @interface PipSampleBufferRenderer : NSObject <RTCVideoRenderer>
 @property(nonatomic, weak) AVSampleBufferDisplayLayer *displayLayer;
@@ -91,13 +96,6 @@
     }
   });
 }
-@end
-
-@interface PipCompositeView : UIView
-@property(nonatomic, strong) PipSampleBufferView *remoteView;
-@property(nonatomic, strong) UIView *localContainer;
-@property(nonatomic, assign) RTCVideoRotation currentRotation;
-- (void)updateRotation:(RTCVideoRotation)rotation;
 @end
 
 @implementation PipCompositeView
