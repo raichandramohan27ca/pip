@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'pip_webrtc'
-  s.version          = '0.0.10'
+  s.version          = '0.0.11'
   s.summary          = 'A PiP plugin tuned for WebRTC iOS video calls.'
   s.description      = <<-DESC
 A fork of pip plugin for Picture in Picture, using the video call PiP approach compatible with .playAndRecord audio session.

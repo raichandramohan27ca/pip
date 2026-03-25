@@ -326,9 +326,14 @@
     RTCCameraVideoCapturer *capturer =
         [webrtcPlugin valueForKey:@"videoCapturer"];
     if (capturer && capturer.captureSession) {
-      if (@available(iOS 18.0, *)) {
-        if (capturer.captureSession.isMultitaskingCameraAccessSupported) {
-          capturer.captureSession.multitaskingCameraAccessEnabled = YES;
+      if (@available(iOS 16.0, *)) {
+        AVCaptureSession *session = capturer.captureSession;
+        NSLog(@"[PipBridge] session running: %d, multitaskingSupported: %d",
+              session.isRunning, session.isMultitaskingCameraAccessSupported);
+        if (session.isMultitaskingCameraAccessSupported) {
+          [session beginConfiguration];
+          session.multitaskingCameraAccessEnabled = YES;
+          [session commitConfiguration];
           NSLog(@"[PipBridge] Multitasking camera access enabled");
         }
       }
