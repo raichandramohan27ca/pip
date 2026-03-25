@@ -20,8 +20,12 @@
 }
 @end
 
+@class PipCompositeView;
+
 @interface PipSampleBufferRenderer : NSObject <RTCVideoRenderer>
 @property(nonatomic, weak) AVSampleBufferDisplayLayer *displayLayer;
+@property(nonatomic, weak) PipCompositeView *compositeView;
+@property(nonatomic, assign) RTCVideoRotation lastRotation;
 @end
 
 @implementation PipSampleBufferRenderer
@@ -29,6 +33,7 @@
   self = [super init];
   if (self) {
     _displayLayer = layer;
+    _lastRotation = RTCVideoRotation_0;
   }
   return self;
 }
@@ -66,6 +71,13 @@
     return;
   }
 
+  RTCVideoRotation rotation = frame.rotation;
+  PipCompositeView *composite = self.compositeView;
+  BOOL rotationChanged = (rotation != self.lastRotation);
+  if (rotationChanged) {
+    self.lastRotation = rotation;
+  }
+
   CFRetain(sampleBuffer);
   dispatch_async(dispatch_get_main_queue(), ^{
     if (layer.status == AVQueuedSampleBufferRenderingStatusFailed) {
@@ -73,7 +85,73 @@
     }
     [layer enqueueSampleBuffer:sampleBuffer];
     CFRelease(sampleBuffer);
+
+    if (rotationChanged && composite) {
+      [composite updateRotation:rotation];
+    }
   });
+}
+@end
+
+@interface PipCompositeView : UIView
+@property(nonatomic, strong) PipSampleBufferView *remoteView;
+@property(nonatomic, strong) UIView *localContainer;
+@property(nonatomic, assign) RTCVideoRotation currentRotation;
+- (void)updateRotation:(RTCVideoRotation)rotation;
+@end
+
+@implementation PipCompositeView
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  [self layoutRemoteView];
+  [self layoutLocalView];
+}
+
+- (void)layoutRemoteView {
+  if (!self.remoteView) return;
+
+  self.remoteView.transform = CGAffineTransformIdentity;
+
+  BOOL isRotated = (self.currentRotation == RTCVideoRotation_90 ||
+                    self.currentRotation == RTCVideoRotation_270);
+
+  if (isRotated) {
+    self.remoteView.bounds = CGRectMake(
+        0, 0, self.bounds.size.height, self.bounds.size.width);
+    self.remoteView.center = CGPointMake(
+        self.bounds.size.width / 2, self.bounds.size.height / 2);
+    CGFloat angle = (self.currentRotation == RTCVideoRotation_90)
+                        ? M_PI_2
+                        : -M_PI_2;
+    self.remoteView.transform = CGAffineTransformMakeRotation(angle);
+  } else if (self.currentRotation == RTCVideoRotation_180) {
+    self.remoteView.frame = self.bounds;
+    self.remoteView.transform = CGAffineTransformMakeRotation(M_PI);
+  } else {
+    self.remoteView.frame = self.bounds;
+  }
+}
+
+- (void)layoutLocalView {
+  if (!self.localContainer) return;
+
+  CGFloat w = self.bounds.size.width * 0.28;
+  CGFloat h = w * 16.0 / 9.0;
+  self.localContainer.frame = CGRectMake(
+      self.bounds.size.width - w - 8, 8, w, h);
+
+  for (CALayer *sublayer in self.localContainer.layer.sublayers) {
+    if ([sublayer isKindOfClass:[AVCaptureVideoPreviewLayer class]]) {
+      sublayer.frame = self.localContainer.bounds;
+    }
+  }
+}
+
+- (void)updateRotation:(RTCVideoRotation)rotation {
+  if (self.currentRotation == rotation) return;
+  self.currentRotation = rotation;
+  [self setNeedsLayout];
+  [self layoutIfNeeded];
 }
 @end
 
@@ -182,6 +260,10 @@
     if (self.attachedVideoTrack && self.pipVideoRenderer) {
       [self.attachedVideoTrack removeRenderer:self.pipVideoRenderer];
     }
+    if (self.localPreviewLayer) {
+      [self.localPreviewLayer removeFromSuperlayer];
+      self.localPreviewLayer = nil;
+    }
     self.nativePipVideoView = nil;
     self.attachedVideoTrack = nil;
     self.pipVideoRenderer = nil;
@@ -222,37 +304,70 @@
       return;
     }
 
-    PipSampleBufferView *videoView =
-        [[PipSampleBufferView alloc] initWithFrame:CGRectMake(0, 0, 270, 480)];
-    videoView.backgroundColor = [UIColor blackColor];
-    videoView.sampleBufferLayer.videoGravity =
-        AVLayerVideoGravityResizeAspect;
+    PipCompositeView *composite =
+        [[PipCompositeView alloc] initWithFrame:CGRectMake(0, 0, 270, 480)];
+    composite.backgroundColor = [UIColor blackColor];
+    composite.clipsToBounds = YES;
+
+    PipSampleBufferView *remoteView =
+        [[PipSampleBufferView alloc] initWithFrame:composite.bounds];
+    remoteView.backgroundColor = [UIColor blackColor];
+    remoteView.sampleBufferLayer.videoGravity =
+        AVLayerVideoGravityResizeAspectFill;
+    remoteView.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    composite.remoteView = remoteView;
+    [composite addSubview:remoteView];
 
     PipSampleBufferRenderer *renderer =
         [[PipSampleBufferRenderer alloc]
-            initWithDisplayLayer:videoView.sampleBufferLayer];
+            initWithDisplayLayer:remoteView.sampleBufferLayer];
+    renderer.compositeView = composite;
     [videoTrack addRenderer:renderer];
 
-    RTCCameraVideoCapturer *capturer = [webrtcPlugin valueForKey:@"videoCapturer"];
+    RTCCameraVideoCapturer *capturer =
+        [webrtcPlugin valueForKey:@"videoCapturer"];
     if (capturer && capturer.captureSession) {
       if (@available(iOS 18.0, *)) {
         if (capturer.captureSession.isMultitaskingCameraAccessSupported) {
           capturer.captureSession.multitaskingCameraAccessEnabled = YES;
+          NSLog(@"[PipBridge] Multitasking camera access enabled");
         }
       }
+
+      AVCaptureVideoPreviewLayer *previewLayer =
+          [AVCaptureVideoPreviewLayer layerWithSession:capturer.captureSession];
+      previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+      previewLayer.cornerRadius = 8;
+      previewLayer.masksToBounds = YES;
+
+      UIView *localContainer = [[UIView alloc] init];
+      localContainer.layer.cornerRadius = 8;
+      localContainer.clipsToBounds = YES;
+      [localContainer.layer addSublayer:previewLayer];
+
+      composite.localContainer = localContainer;
+      [composite addSubview:localContainer];
+
+      previewLayer.frame = localContainer.bounds;
+      self.localPreviewLayer = previewLayer;
     }
 
-    self.nativePipVideoView = videoView;
+    self.nativePipVideoView = composite;
     self.attachedVideoTrack = videoTrack;
     self.pipVideoRenderer = renderer;
 
-    uint64_t pointer = (uint64_t)videoView;
-    NSLog(@"[PipBridge] Created native video view: %llu", pointer);
+    uint64_t pointer = (uint64_t)composite;
+    NSLog(@"[PipBridge] Created composite PiP view: %llu", pointer);
     result(@(pointer));
 
   } else if ([@"disposePipVideoView" isEqualToString:call.method]) {
     if (self.attachedVideoTrack && self.pipVideoRenderer) {
       [self.attachedVideoTrack removeRenderer:self.pipVideoRenderer];
+    }
+    if (self.localPreviewLayer) {
+      [self.localPreviewLayer removeFromSuperlayer];
+      self.localPreviewLayer = nil;
     }
     [self.nativePipVideoView removeFromSuperview];
     self.pipVideoRenderer = nil;
