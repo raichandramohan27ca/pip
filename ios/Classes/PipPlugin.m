@@ -83,7 +83,6 @@
     self.lastRotation = rotation;
   }
 
-  CFRetain(sampleBuffer);
   dispatch_async(dispatch_get_main_queue(), ^{
     if (layer.status == AVQueuedSampleBufferRenderingStatusFailed) {
       [layer flush];
